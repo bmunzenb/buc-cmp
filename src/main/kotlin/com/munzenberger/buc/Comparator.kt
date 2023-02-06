@@ -1,116 +1,136 @@
 package com.munzenberger.buc
 
-fun compare(setA: List<Record>, setB: List<Record>) {
+import java.io.File
 
-    println("BUC Name,SK Member Status,Field,BUC Directory Value,Servant Keeper Value")
+private data class Difference(
+    val field: String,
+    val valueA: String,
+    val valueB: String
+)
+
+fun compareRecords(bucRecords: Set<Record>, skRecords: Set<Record>, out: File) {
 
     var matched = 0
-
-    var different = 0
+    val unmatched = mutableListOf<Record>()
     var same = 0
+    var different = 0
 
-    val unmatchedRecords = mutableListOf<Record>()
+    val writer = out.printWriter()
 
-    val matchedFamilyIds = mutableListOf<String>()
+    // CSV file headers
+    writer.println("First and Last Name,SK Member Status,Field,BUC Directory Value,ServantKeeper Value")
 
-    setA.forEach { recordA ->
+    bucRecords.forEach { bucRecord ->
 
-        // find the matching record in setB
-        val recordB = setB.findMatching(recordA)
+        val skRecord = skRecords.match(bucRecord)
 
-        when (recordB) {
+        when (skRecord) {
             null -> {
-                unmatchedRecords.add(recordA)
-                //println("Could not find match for record: $recordA")
+                unmatched.add(bucRecord)
             }
             else -> {
                 matched++
-                val diff = compare(recordA, recordB)
-
-                when (diff.isEmpty()) {
-                    true -> {
-                        same++
+                val differences = compare(bucRecord, skRecord)
+                if (differences.isNotEmpty()) {
+                    different++
+                    writer.println("\"${bucRecord.fullName}\",\"${skRecord.memberStatus}\",,,")
+                    differences.forEach {
+                        writer.println(",,\"${it.field}\",\"${it.valueA}\",\"${it.valueB}\"")
                     }
-                    false -> {
-                        different++
-                        println("${recordA.fullName},${recordB[SK_STATUS]},,,")
-                        diff.forEach { (key, value) ->
-                            println(",,$key,\"${value.first}\",\"${value.second}\"")
-                        }
-                    }
+                }
+                else {
+                    same++
                 }
             }
         }
     }
 
-    println()
-    println("BUC directory records: ${setA.size}")
-    println("Servant Keeper records: ${setB.size}")
-    println("Matched $matched records, $different records are different, $same records are the same")
+    writer.flush()
+    writer.close()
 
+    println("$matched records from BUC directory found in ServantKeeper (matched by first and last name), ${unmatched.size} records were not found (see list below).")
+    println("Found $different records with differences between BUC directory and ServantKeeper (see output CSV), $same records are the same.")
     println()
-    println("Unmatched records from BUC directory (${unmatchedRecords.size}):")
-    println()
-    unmatchedRecords.forEachIndexed { _, value -> println("${value[FIRST_NAME]} ${value[LAST_NAME]}") }
+    println("Records in BUC directory that were not found in ServantKeeper:")
+    unmatched.sortedBy { "${it.lastName} ${it.firstName}" }.forEach { println(it.fullName) }
 }
 
-fun compare(recordA: Record, recordB: Record) : Map<String, Pair<String?, String?>> {
+private fun Set<Record>.match(record: Record): Record? {
 
-    val map = mutableMapOf<String, Pair<String?, String?>>()
+    // match by first and last name
+    val matched = filter { it.firstName == record.firstName && it.lastName == record.lastName }
 
-    recordA.forEach { (key, valueA) ->
-        when (key) {
-            SK_STATUS -> Unit // do not compare
+    if (matched.size > 1) {
+        println("More than one match for record ${record.firstName} ${record.lastName}.")
+        return null
+    }
+
+    if (matched.isEmpty()) {
+        //println("No match for record ${record.firstName} ${record.lastName}")
+        return null
+    }
+
+    return matched.first()
+}
+
+private fun compare(bucRecord: Record, skRecord: Record): List<Difference> {
+
+    val diff = mutableListOf<Difference>()
+
+
+    if (bucRecord.address.comparable() != skRecord.address.comparable()) {
+        diff.add(Difference("Address", bucRecord.address, skRecord.address))
+    }
+
+    if (bucRecord.cityAndState.comparable() != skRecord.cityAndState.comparable()) {
+        diff.add(Difference("City and State", bucRecord.cityAndState, skRecord.cityAndState))
+    }
+
+    if (bucRecord.zip.truncate(5) != skRecord.zip.truncate(5)) {
+        diff.add(Difference("Zip", bucRecord.zip, skRecord.zip))
+    }
+
+    if (bucRecord.phoneNumbers != skRecord.phoneNumbers) {
+        diff.add(Difference("Phone Numbers", bucRecord.phoneNumbers, skRecord.phoneNumbers))
+    }
+
+    if (bucRecord.emails != skRecord.emails) {
+        diff.add(Difference("Emails", bucRecord.emails, skRecord.emails))
+    }
+
+    return diff
+}
+
+val Record.fullName: String
+    get() = "$firstName $lastName"
+
+fun String.comparable(): String {
+    val sb = StringBuilder()
+
+    var space = false
+
+    this.forEach {
+        when (it) {
+            ',', '.' -> Unit // ignore
+            ' ' -> {
+                if (!space) {
+                    sb.append(it)
+                }
+                space = true
+            }
             else -> {
-                val valueB = recordB[key]
-                if (valueA != valueB) {
-                    map[key] = valueA to valueB
-                }
+                sb.append(it)
+                space = false
             }
         }
     }
 
-    return map
+    return sb.toString().trim()
 }
 
-fun List<Record>.findMatching(record: Record) : Record? {
-/*
-    // find all matching the last name
-    var match = filter { it[LAST_NAME]?.uppercase() == record[LAST_NAME]?.uppercase() }
-
-    if (match.size > 1) {
-        // try by email address
-        when (val e = record[EMAIL]) {
-            null -> Unit // do nothing
-            else -> match = match.filter { it[EMAIL]?.contains(e) ?: false }
-        }
+fun String.truncate(length: Int): String {
+    return when {
+        this.length > length -> substring(0, length)
+        else -> this
     }
-
-    if (match.size > 1) {
-        // try by first name
-        when (val n = record[FIRST_NAME]) {
-            null -> Unit // do nothing
-            else -> match = match.filter { it[FIRST_NAME]?.contains(n) ?: false }
-        }
-    }
-
-    if (match.size > 1) {
-        //println("Duplicate matches found: $match")
-        match = emptyList()
-    }
-
-    return match.firstOrNull()
-
- */
-
-    val match = filter { it.uniqueId == record.uniqueId }
-
-    if (match.size > 1) {
-        throw IllegalStateException("Duplicate records found")
-    }
-
-    return match.firstOrNull()
 }
-
-val Record.fullName : String
-    get() = "${this[FIRST_NAME]} ${this[LAST_NAME]}"

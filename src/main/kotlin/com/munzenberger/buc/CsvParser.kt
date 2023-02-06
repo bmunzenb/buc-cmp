@@ -2,7 +2,9 @@ package com.munzenberger.buc
 
 import java.io.File
 
-fun parse(file: File): List<Record> {
+typealias CsvRecord = Map<String, String>
+
+fun parse(file: File): List<CsvRecord> {
 
     val results = mutableListOf<Map<String, String>>()
     val keys = mutableListOf<String>()

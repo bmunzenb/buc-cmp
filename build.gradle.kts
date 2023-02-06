@@ -1,6 +1,5 @@
 plugins {
     kotlin("jvm") version "1.8.10"
-    application
 }
 
 group = "com.munzenberger.buc"
@@ -20,8 +19,4 @@ tasks.test {
 
 kotlin {
     jvmToolchain(8)
-}
-
-application {
-    mainClass.set("com.munzenberger.buc.MainKt")
 }
